@@ -1,0 +1,5 @@
+native/
+logs/
+errors/
+__save_data__/
+.DS_Store
