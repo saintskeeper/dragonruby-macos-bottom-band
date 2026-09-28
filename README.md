@@ -4,21 +4,28 @@ I use a native extension to make DragonRuby's existing window borderless and siz
 it to the bottom third of the current display's usable desktop. This is a stripped
 down demonstration, not my game's full adapter. It needs no art or game code.
 
-## Build and run
+## Quick start
 
 Requires macOS, Xcode Command Line Tools, and DragonRuby 7.16 with C extension
-support and `include/dragonruby.h` (Pro). Put these files in a new game directory:
+support and `include/dragonruby.h` (Pro).
 
-```text
-bottom-band-demo/
-  bottom_band.c
-  app/
-    main.rb
-  native/
-    macos/              # compiled library goes here
+```sh
+# I clone the public example, then run it with my local DragonRuby SDK.
+git clone https://github.com/saintskeeper/dragonruby-macos-bottom-band.git
+cd dragonruby-macos-bottom-band
+make run SDK=/absolute/path/to/dragonruby-macos-7.16
 ```
 
-From that directory, compile for the architecture of the DragonRuby process:
+`make build` builds `native/macos/bottom_band.dylib`; `make clean` removes it.
+`SDK` defaults to `.sdk`, and `ARCH` defaults to `uname -m`. Override it when the
+engine architecture differs from the host—for example,
+`make run SDK=/absolute/path/to/dragonruby-macos-7.16 ARCH=x86_64` for a
+DragonRuby process running under Rosetta. The extension and engine architectures
+must match.
+
+## Manual build (optional)
+
+I can also compile it directly from the repository root:
 
 ```sh
 SDK="/absolute/path/to/dragonruby-macos-7.16"
