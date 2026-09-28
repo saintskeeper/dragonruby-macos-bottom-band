@@ -1,112 +1,62 @@
 # Minimal macOS bottom-band window — DragonRuby 7.16
 
-I use a native extension to make DragonRuby's existing window borderless and size
-it to the bottom third of the current display's usable desktop. This is a stripped
-down demonstration, not my game's full adapter. It needs no art or game code.
+I wanted my harbor game to sit along the bottom of the desktop. This is the
+smallest example of the C extension I used: take the existing DragonRuby window,
+remove the border, and size it to the bottom third of the usable screen.
 
 ## Quick start
 
-Requires macOS, Xcode Command Line Tools, and DragonRuby 7.16 with C extension
-support and `include/dragonruby.h` (Pro).
+Requires macOS, Xcode Command Line Tools, and DragonRuby 7.16 Pro with C
+extension support (`include/dragonruby.h`).
 
 ```sh
-# I clone the public example, then run it with my local DragonRuby SDK.
 git clone https://github.com/saintskeeper/dragonruby-macos-bottom-band.git
 cd dragonruby-macos-bottom-band
 make run SDK=/absolute/path/to/dragonruby-macos-7.16
 ```
 
-`make build` builds `native/macos/bottom_band.dylib`; `make clean` removes it.
-`SDK` defaults to `.sdk`, and `ARCH` defaults to `uname -m`. Override it when the
-engine architecture differs from the host—for example,
-`make run SDK=/absolute/path/to/dragonruby-macos-7.16 ARCH=x86_64` for a
-DragonRuby process running under Rosetta. The extension and engine architectures
-must match.
-
-## Manual build (optional)
-
-I can also compile it directly from the repository root:
+`make build` creates `native/macos/bottom_band.dylib`; `make clean` removes it.
+`SDK` defaults to `.sdk`, and `ARCH` defaults to `uname -m`. Override `ARCH`
+when the engine process differs from the host, such as Rosetta:
 
 ```sh
-SDK="/absolute/path/to/dragonruby-macos-7.16"
-ARCH=arm64 # use x86_64 for Intel or a DragonRuby process running under Rosetta
-mkdir -p native/macos
-clang -x c -std=c11 -fPIC -dynamiclib -arch "$ARCH" \
-  -isysroot "$(xcrun --show-sdk-path)" -I "$SDK/include" \
-  bottom_band.c -framework AppKit -framework Foundation -framework CoreGraphics \
-  -o native/macos/bottom_band.dylib
-"$SDK/dragonruby" "$PWD"
+make run SDK=/absolute/path/to/dragonruby-macos-7.16 ARCH=x86_64
 ```
 
-The window should become a borderless bottom band. R restores its original
-style and frame; restart the process to apply the band again. Native state prevents
-Ruby resize resets from repeatedly changing the window. A missing window/screen
-raises an error rather than silently claiming success.
+The extension architecture must match DragonRuby. Press **R** to restore the
+original frame and window style; restart DragonRuby to apply the band again.
 
-This intentionally leaves stacking level, opacity, shadow, and rendering behavior
-unchanged. It does not make an always-on-top window or implement transparency.
-The only render output is an opaque background after the native update.
+## What the extension asks AppKit for
 
-## Which native objects supply the dimensions?
-
-These are Objective-C/AppKit objects accessed from C through `objc_msgSend`, not
-DragonRuby structs:
-
-| Object / API | What I need it for |
+| Native object / API | Why it is needed |
 | --- | --- |
-| `NSApplication.sharedApplication` → `keyWindow` / `mainWindow` | Locate the existing game window in this single-window demo. |
-| `NSWindow.screen` | Find the display containing that window; fall back to `NSScreen.mainScreen` if absent. |
-| `NSScreen.visibleFrame` | Get usable desktop **origin and size**, accounting for the Dock and menu bar. |
-| `CGRect.origin.x/y`, `CGRect.size.width/height` | Preserve the usable origin and full width; divide usable height by three. |
-| `NSWindow.frame`, `styleMask` | Save the original frame and decorations for restoration. |
-| `NSWindow.setFrame:display:`, `setStyleMask:` | Apply the new native frame and borderless style. |
+| [`NSApplication`](https://developer.apple.com/documentation/appkit/nsapplication) `keyWindow` / `mainWindow` | Find the existing game window. |
+| [`NSWindow`](https://developer.apple.com/documentation/appkit/nswindow) `screen`, `frame`, `setFrame:display:`, `styleMask`, `setStyleMask:` | Find its display, save the original frame and style, then resize it and remove the border. |
+| [`NSScreen.visibleFrame`](https://developer.apple.com/documentation/appkit/nsscreen/visibleframe) | Get the usable work area—its origin and size already account for the Dock and menu bar. |
+| [`CGRect`](https://developer.apple.com/documentation/corefoundation/cgrect) | Keep the work area's origin and width, then divide its height by three. |
 
-The sizing formula is simply:
+The frame is AppKit/Cocoa **points** with a bottom-left origin, not DragonRuby
+logical canvas pixels or backing pixels. `grid.allscreen_*` is therefore not a
+desktop-coordinate substitute. `backingScaleFactor` matters only when
+converting pixels to points; this example does not need that conversion.
 
-```text
-band = screen.visibleFrame
-band.height = band.height / 3
-```
+AppKit work runs on the main thread. The C helper also uses the correct CGRect
+return convention for Intel versus Apple Silicon.
 
-Cocoa screen/window frames are in **points**, with a bottom-left origin. Keeping
-`visibleFrame.origin` matters on secondary displays and when the Dock occupies
-part of the desktop. Do not assume `(0, 0)` is the usable area's origin.
+## Why native control
 
-`NSScreen.backingScaleFactor` is relevant when converting backing pixels to points;
-I do **not** need it here because both the input and output rectangles are already
-in points. DragonRuby logical canvas pixels and `grid.allscreen_*` are a different
-coordinate space—not a substitute for the desktop work area.
+DragonRuby 7.16 has `DR.set_window_size` and `DR.set_window_position`, but its
+SDK runtime docs mark them development/debugging-only. This needs both
+borderless styling and the display work area, so the extension uses AppKit.
 
-AppKit calls execute on the main thread via `dispatch_sync_f`. The C message helper
-also distinguishes Intel's `objc_msgSend_stret` convention for returning a `CGRect`
-from Apple Silicon's normal `objc_msgSend` convention.
+I also tried leaving the top of the game transparent, but it showed up black.
+So I made the actual window smaller instead. The desktop above it is uncovered,
+not showing through the game. This example doesn't change the renderer.
 
-## Why native control?
+## Limits and validation
 
-The 7.16 SDK's `docs/api/runtime.md` documents `DR.set_window_size` and
-`DR.set_window_position`, but explicitly marks them development/debugging-only,
-not production features. My use case also needs native borderless styling and the
-usable desktop bounds. The extension provides those together.
-
-In my game, empty framebuffer areas appeared black rather than exposing the
-desktop. A physically smaller window avoids depending on per-pixel transparency:
-the desktop above the band is visible because no game window occupies it. This
-example does not diagnose or change the renderer's alpha behavior.
-
-## Native references
-
-- [NSApplication](https://developer.apple.com/documentation/appkit/nsapplication)
-- [NSWindow](https://developer.apple.com/documentation/appkit/nswindow)
-- [NSScreen](https://developer.apple.com/documentation/appkit/nsscreen)
-- [NSScreen.visibleFrame](https://developer.apple.com/documentation/appkit/nsscreen/visibleframe)
-- [NSScreen.backingScaleFactor](https://developer.apple.com/documentation/appkit/nsscreen/backingscalefactor)
-- [CGRect](https://developer.apple.com/documentation/corefoundation/cgrect)
-- [Objective-C runtime](https://developer.apple.com/documentation/objectivec)
-
-## Scope and validation
-
-This assumes one ordinary game window, not fullscreen, multiple engine windows,
-or ongoing display/Dock changes. It does not track window replacement or promise
-focus/click-through behavior. It is a minimal reproduction, not a hardened adapter.
-Compilation and Ruby syntax can be checked independently of live window behavior;
-neither proves correct placement or R-key handling in a running engine.
+This is a single ordinary window example: it does not track display, Dock, or
+window replacement changes, or promise fullscreen, focus, and click-through
+behavior. It was compiled and run on Apple Silicon; the geometry was verified
+there and the demo looked good in playtest. R-key handling has not been live
+verified.
